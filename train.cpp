@@ -34,11 +34,9 @@ int main() {
 	for (int gen = 0; gen < GENERATIONS; gen++) {
 		fitnesses = evaluate(population);
 
-		if (gen % 100 == 0) {
-			double maxFitness = *max_element(fitnesses.begin(), fitnesses.end());
+		double maxFitness = *max_element(fitnesses.begin(), fitnesses.end());
 
-			cout << (gen / 100) << "%% complete, max ffitness " << maxFitness << endl;
-		}
+		cout << (gen / 100) << "%% complete, max fitness " << maxFitness << endl;
 
 		vector<Individual> descendants;
 
@@ -215,13 +213,17 @@ vector<double> evaluate(const vector<Individual>& population) {
 	vector<int> wins(population.size());
 	transform(population.begin(), population.end(), wins.begin(), [](const Individual&) { return 0; });
 
+	size_t counter = 0;
 	for (size_t i = 0; i < population.size(); i++) {
 		for (size_t j = i + 1; j < population.size(); j++) {
 			MatchResults results = match(population[i], population[j]);
 
 			wins[i] += results.a;
 			wins[j] += results.b;
+			counter++;
 		}
+
+		cout << "Evaluation " << ((double)counter / (population.size() * (population.size() - 1)) * 100) << "%% complete" << endl;
 	}
 
 	vector<double> winrates(population.size());
