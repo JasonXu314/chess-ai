@@ -12,7 +12,7 @@ using namespace std;
 
 using json = nlohmann::json;
 
-#define POP_SIZE 1000
+#define POP_SIZE 50
 #define GENERATIONS 10000
 #define MUTATION_FREQ 0.2
 
@@ -223,7 +223,6 @@ vector<double> evaluate(const vector<Individual>& population) {
 						MatchResults results = match(a, b);
 
 						lock.lock();
-						cout << i << " matched " << j << endl;
 						wins[i] += results.a;
 						wins[j] += results.b;
 						lock.unlock();
