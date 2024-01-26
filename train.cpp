@@ -217,17 +217,24 @@ vector<double> evaluate(const vector<Individual>& population) {
 	vector<thread> threads;
 	for (size_t i = 0; i < population.size(); i++) {
 		for (size_t j = i + 1; j < population.size(); j++) {
-			threads.push_back(thread(
-				[&lock, &wins, &i, &j](const Individual& a, const Individual& b) {
-					MatchResults results = match(a, b);
+			try {
+				threads.push_back(thread(
+					[&lock, &wins, &i, &j](const Individual& a, const Individual& b) {
+						MatchResults results = match(a, b);
 
-					lock.lock();
-					cout << i << " matched " << j << endl;
-					wins[i] += results.a;
-					wins[j] += results.b;
-					lock.unlock();
-				},
-				population[i], population[j]));
+						lock.lock();
+						cout << i << " matched " << j << endl;
+						wins[i] += results.a;
+						wins[j] += results.b;
+						lock.unlock();
+					},
+					population[i], population[j]));
+			} catch (const system_error& e) {
+				cerr << "Starting thread error: " << e.what() << endl;
+				j--;
+			} catch (...) {
+				cerr << "Starting thread unknown error" << endl;
+			}
 		}
 	}
 
