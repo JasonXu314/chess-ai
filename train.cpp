@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 #include "engine/chess.h"
@@ -36,7 +37,7 @@ int main() {
 
 		double maxFitness = *max_element(fitnesses.begin(), fitnesses.end());
 
-		cout << (gen / 100) << "%% complete, max fitness " << maxFitness << endl;
+		cout << (gen / 100) << "% complete, max fitness " << maxFitness << endl;
 
 		vector<Individual> descendants;
 
@@ -210,20 +211,32 @@ MatchResults match(const Individual& a, const Individual& b) {
 
 // round-robin tournament selection
 vector<double> evaluate(const vector<Individual>& population) {
-	vector<int> wins(population.size());
-	transform(population.begin(), population.end(), wins.begin(), [](const Individual&) { return 0; });
+	vector<int> wins(population.size(), 0);
 
-	size_t counter = 0;
+	mutex lock;
+	vector<thread> threads;
 	for (size_t i = 0; i < population.size(); i++) {
 		for (size_t j = i + 1; j < population.size(); j++) {
-			MatchResults results = match(population[i], population[j]);
+			threads.push_back(thread(
+				[&lock, &wins, &i, &j](const Individual& a, const Individual& b) {
+					MatchResults results = match(a, b);
 
-			wins[i] += results.a;
-			wins[j] += results.b;
-			counter++;
+					lock.lock();
+					cout << i << " matched " << j << endl;
+					wins[i] += results.a;
+					wins[j] += results.b;
+					lock.unlock();
+				},
+				population[i], population[j]));
 		}
+	}
 
-		cout << "Evaluation " << ((double)counter / (population.size() * (population.size() - 1)) * 100) << "%% complete" << endl;
+	for (size_t i = 0; i < threads.size(); i++) {
+		threads[i].join();
+
+		lock.lock();
+		cout << "Evaluation " << ((double)i / (population.size() * (population.size() - 1)) * 100) << "% complete" << endl;
+		lock.unlock();
 	}
 
 	vector<double> winrates(population.size());
