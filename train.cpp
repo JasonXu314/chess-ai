@@ -241,7 +241,7 @@ vector<double> evaluate(const vector<Individual>& population) {
 			try {
 				threads.push_back(thread(
 					[&lock, &wins, &i, &j](const Individual& a, const Individual& b) {
-						unique_lock guard(lock);
+						unique_lock guard(lock, defer_lock);
 
 						try {
 							MatchResults results = match(a, b);
@@ -272,7 +272,7 @@ vector<double> evaluate(const vector<Individual>& population) {
 		}
 	}
 
-	unique_lock mainGuard(lock);
+	unique_lock mainGuard(lock, defer_lock);
 	for (size_t i = 0; i < threads.size(); i++) {
 		threads[i].join();
 
