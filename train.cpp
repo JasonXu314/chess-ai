@@ -272,12 +272,13 @@ vector<double> evaluate(const vector<Individual>& population) {
 		}
 	}
 
+	unique_lock mainGuard(lock);
 	for (size_t i = 0; i < threads.size(); i++) {
 		threads[i].join();
 
-		lock.lock();
+		mainGuard.lock();
 		cout << "Evaluation " << ((double)i / (population.size() * (population.size() - 1)) * 100) << "% complete" << endl;
-		lock.unlock();
+		mainGuard.unlock();
 	}
 
 	vector<double> winrates(population.size());
