@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -23,6 +24,18 @@ struct MatchResults {
 MatchResults match(const Individual& a, const Individual& b);
 
 vector<double> evaluate(const vector<Individual>& population);
+
+class GameError : public runtime_error {
+public:
+	GameError(const string& what, const string& fen) : runtime_error(what.c_str()), _fen(fen) {}
+
+	string fen() const {
+		return _fen;
+	}
+
+private:
+	string _fen;
+};
 
 int main() {
 	vector<Individual> population;
@@ -74,136 +87,144 @@ MatchResults match(const Individual& a, const Individual& b) {
 	uint halfMoves = 0;
 	Game aWhite;
 
-	while (aWhite.getAvailableMoves().size() > 0 && halfMoves < 200) {
-		vector<Move> moves = aWhite.getAvailableMoves();
-		vector<double> advantages(moves.size());
-
-		if (aWhite.turn() == Players::WHITE) {
-			transform(moves.begin(), moves.end(), advantages.begin(),
-					  [&a, &aWhite](const Move& move) { return a.evaluatePosition(aWhite.branch(move), Players::WHITE); });
-		} else {
-			transform(moves.begin(), moves.end(), advantages.begin(),
-					  [&b, &aWhite](const Move& move) { return b.evaluatePosition(aWhite.branch(move), Players::BLACK); });
-		}
-
-		size_t currMax = 0;
-		for (size_t i = 1; i < moves.size(); i++) {
-			if (advantages[i] > advantages[currMax]) {
-				currMax = i;
-			}
-		}
-
-		bool shouldPromote = aWhite.move(moves[currMax]);
-
-		if (shouldPromote) {
-			Position promotionSquare = moves[currMax].to;
-			vector<double> advantages;
+	try {
+		while (aWhite.getAvailableMoves().size() > 0 && halfMoves < 200) {
+			vector<Move> moves = aWhite.getAvailableMoves();
+			vector<double> advantages(moves.size());
 
 			if (aWhite.turn() == Players::WHITE) {
-				for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-					advantages.push_back(a.evaluatePosition(aWhite.branchPromote(promotionSquare, piece), Players::WHITE));
-				}
+				transform(moves.begin(), moves.end(), advantages.begin(),
+						  [&a, &aWhite](const Move& move) { return a.evaluatePosition(aWhite.branch(move), Players::WHITE); });
 			} else {
-				for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-					advantages.push_back(b.evaluatePosition(aWhite.branchPromote(promotionSquare, piece), Players::BLACK));
+				transform(moves.begin(), moves.end(), advantages.begin(),
+						  [&b, &aWhite](const Move& move) { return b.evaluatePosition(aWhite.branch(move), Players::BLACK); });
+			}
+
+			size_t currMax = 0;
+			for (size_t i = 1; i < moves.size(); i++) {
+				if (advantages[i] > advantages[currMax]) {
+					currMax = i;
 				}
 			}
 
-			PieceTypes promoteTo = PieceTypes::KNIGHT;
-			for (PieceTypes piece = PieceTypes::BISHOP; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-				if (advantages[piece - PieceTypes::KNIGHT] > advantages[promoteTo - PieceTypes::KNIGHT]) {
-					promoteTo = piece;
+			bool shouldPromote = aWhite.move(moves[currMax]);
+
+			if (shouldPromote) {
+				Position promotionSquare = moves[currMax].to;
+				vector<double> advantages;
+
+				if (aWhite.turn() == Players::WHITE) {
+					for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+						advantages.push_back(a.evaluatePosition(aWhite.branchPromote(promotionSquare, piece), Players::WHITE));
+					}
+				} else {
+					for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+						advantages.push_back(b.evaluatePosition(aWhite.branchPromote(promotionSquare, piece), Players::BLACK));
+					}
 				}
+
+				PieceTypes promoteTo = PieceTypes::KNIGHT;
+				for (PieceTypes piece = PieceTypes::BISHOP; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+					if (advantages[piece - PieceTypes::KNIGHT] > advantages[promoteTo - PieceTypes::KNIGHT]) {
+						promoteTo = piece;
+					}
+				}
+
+				aWhite.promote(promotionSquare, promoteTo);
 			}
 
-			aWhite.promote(promotionSquare, promoteTo);
+			halfMoves++;
 		}
 
-		halfMoves++;
-	}
-
-	if (aWhite.getAvailableMoves().size() == 0) {
-		// black is checkmated
-		if (aWhite.turn() == Players::BLACK) {
-			out.a++;
+		if (aWhite.getAvailableMoves().size() == 0) {
+			// black is checkmated
+			if (aWhite.turn() == Players::BLACK) {
+				out.a++;
+			} else {
+				out.b++;
+			}
 		} else {
-			out.b++;
+			// tiebreak by materiel
+			if (aWhite.materiel(Players::WHITE) > aWhite.materiel(Players::BLACK)) {
+				out.a++;
+			} else {
+				out.b++;
+			}
 		}
-	} else {
-		// tiebreak by materiel
-		if (aWhite.materiel(Players::WHITE) > aWhite.materiel(Players::BLACK)) {
-			out.a++;
-		} else {
-			out.b++;
-		}
+	} catch (const runtime_error& e) {
+		throw GameError(e.what(), aWhite.dumpFEN());
 	}
 
 	// repeat, for b being white
 	halfMoves = 0;
 	Game bWhite;
 
-	while (bWhite.getAvailableMoves().size() > 0 && halfMoves < 200) {
-		vector<Move> moves = bWhite.getAvailableMoves();
-		vector<double> advantages(moves.size());
-
-		if (bWhite.turn() == Players::WHITE) {
-			transform(moves.begin(), moves.end(), advantages.begin(),
-					  [&b, &bWhite](const Move& move) { return b.evaluatePosition(bWhite.branch(move), Players::WHITE); });
-		} else {
-			transform(moves.begin(), moves.end(), advantages.begin(),
-					  [&a, &bWhite](const Move& move) { return a.evaluatePosition(bWhite.branch(move), Players::BLACK); });
-		}
-
-		size_t currMax = 0;
-		for (size_t i = 1; i < moves.size(); i++) {
-			if (advantages[i] > advantages[currMax]) {
-				currMax = i;
-			}
-		}
-
-		bool shouldPromote = bWhite.move(moves[currMax]);
-
-		if (shouldPromote) {
-			Position promotionSquare = moves[currMax].to;
-			vector<double> advantages;
+	try {
+		while (bWhite.getAvailableMoves().size() > 0 && halfMoves < 200) {
+			vector<Move> moves = bWhite.getAvailableMoves();
+			vector<double> advantages(moves.size());
 
 			if (bWhite.turn() == Players::WHITE) {
-				for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-					advantages.push_back(b.evaluatePosition(bWhite.branchPromote(promotionSquare, piece), Players::WHITE));
-				}
+				transform(moves.begin(), moves.end(), advantages.begin(),
+						  [&b, &bWhite](const Move& move) { return b.evaluatePosition(bWhite.branch(move), Players::WHITE); });
 			} else {
-				for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-					advantages.push_back(a.evaluatePosition(bWhite.branchPromote(promotionSquare, piece), Players::BLACK));
+				transform(moves.begin(), moves.end(), advantages.begin(),
+						  [&a, &bWhite](const Move& move) { return a.evaluatePosition(bWhite.branch(move), Players::BLACK); });
+			}
+
+			size_t currMax = 0;
+			for (size_t i = 1; i < moves.size(); i++) {
+				if (advantages[i] > advantages[currMax]) {
+					currMax = i;
 				}
 			}
 
-			PieceTypes promoteTo = PieceTypes::KNIGHT;
-			for (PieceTypes piece = PieceTypes::BISHOP; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
-				if (advantages[piece - PieceTypes::KNIGHT] > advantages[promoteTo - PieceTypes::KNIGHT]) {
-					promoteTo = piece;
+			bool shouldPromote = bWhite.move(moves[currMax]);
+
+			if (shouldPromote) {
+				Position promotionSquare = moves[currMax].to;
+				vector<double> advantages;
+
+				if (bWhite.turn() == Players::WHITE) {
+					for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+						advantages.push_back(b.evaluatePosition(bWhite.branchPromote(promotionSquare, piece), Players::WHITE));
+					}
+				} else {
+					for (PieceTypes piece = PieceTypes::KNIGHT; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+						advantages.push_back(a.evaluatePosition(bWhite.branchPromote(promotionSquare, piece), Players::BLACK));
+					}
 				}
+
+				PieceTypes promoteTo = PieceTypes::KNIGHT;
+				for (PieceTypes piece = PieceTypes::BISHOP; piece <= PieceTypes::QUEEN; piece = (PieceTypes)((int)piece + 1)) {
+					if (advantages[piece - PieceTypes::KNIGHT] > advantages[promoteTo - PieceTypes::KNIGHT]) {
+						promoteTo = piece;
+					}
+				}
+
+				bWhite.promote(promotionSquare, promoteTo);
 			}
 
-			bWhite.promote(promotionSquare, promoteTo);
+			halfMoves++;
 		}
 
-		halfMoves++;
-	}
-
-	if (bWhite.getAvailableMoves().size() == 0) {
-		// black is checkmated
-		if (bWhite.turn() == Players::BLACK) {
-			out.b++;
+		if (bWhite.getAvailableMoves().size() == 0) {
+			// black is checkmated
+			if (bWhite.turn() == Players::BLACK) {
+				out.b++;
+			} else {
+				out.a++;
+			}
 		} else {
-			out.a++;
+			// tiebreak by materiel
+			if (bWhite.materiel(Players::WHITE) > bWhite.materiel(Players::BLACK)) {
+				out.b++;
+			} else {
+				out.a++;
+			}
 		}
-	} else {
-		// tiebreak by materiel
-		if (aWhite.materiel(Players::WHITE) > aWhite.materiel(Players::BLACK)) {
-			out.b++;
-		} else {
-			out.a++;
-		}
+	} catch (const runtime_error& e) {
+		throw GameError(e.what(), bWhite.dumpFEN());
 	}
 
 	return out;
@@ -220,12 +241,26 @@ vector<double> evaluate(const vector<Individual>& population) {
 			try {
 				threads.push_back(thread(
 					[&lock, &wins, &i, &j](const Individual& a, const Individual& b) {
-						MatchResults results = match(a, b);
+						unique_lock guard(lock);
 
-						lock.lock();
-						wins[i] += results.a;
-						wins[j] += results.b;
-						lock.unlock();
+						try {
+							MatchResults results = match(a, b);
+
+							guard.lock();
+							wins[i] += results.a;
+							wins[j] += results.b;
+							guard.unlock();
+						} catch (const GameError& e) {
+							if (guard) {  // this case should theoretically never exist, but who knows :P
+								cerr << "Game error: " << e.what() << endl;
+								cerr << "FEN Dump: " << e.fen() << endl;
+							} else {
+								guard.lock();
+								cerr << "Game error: " << e.what() << endl;
+								cerr << "FEN Dump: " << e.fen() << endl;
+								guard.unlock();
+							}
+						}
 					},
 					population[i], population[j]));
 			} catch (const system_error& e) {
